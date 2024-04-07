@@ -1,0 +1,28 @@
+.program gb
+
+; Order of pins is important as it allows to work around
+; the hsync issue where sprites are lingering on the
+; X0 column. This is what the hsync function is for.
+;
+; PIN 0: D0
+; PIN 1: D1
+; PIN 2: VSYNC
+; PIN 3: HSYNC
+; PIN 4: CLOCK
+
+set x, 1
+
+loop:
+
+wait 1 pin 4 ; capture on clock falling edge
+jmp pin, hsync ; check `hsync` is high - if so, jump
+wait 0 pin 4 ; wait for it to be low agin
+
+in pins, 4 ; capture d0, d1, vsync, hsync
+jmp loop ; loop back to capture
+
+hsync:
+wait 0 pin 3 ; wait for hsync to go low
+in pins, 3 ; capture d0, d1, vsync
+in x, 1 ; set hsync to high in the output
+jmp loop
