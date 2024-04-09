@@ -13,7 +13,7 @@ pico_generate_pio_header(gameboy ${CMAKE_CURRENT_LIST_DIR}/gb.pio)
 
 target_compile_definitions(gameboy PRIVATE
 	DVI_DEFAULT_SERIAL_CONFIG=${DVI_DEFAULT_SERIAL_CONFIG}
-  # DVI_VERTICAL_REPEAT=4
+  DVI_VERTICAL_REPEAT=4
 )
 
 target_link_libraries(gameboy

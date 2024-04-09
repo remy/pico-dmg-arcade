@@ -13,14 +13,13 @@
 #include "common_dvi_pin_configs.h"
 #include "dvi.h"
 #include "dvi_serialiser.h"
-#include "gfx.h"
 #include "sprite.h"
 
 // DVDD 1.2V (1.1V seems ok too)
-#define FRAME_WIDTH 320
-#define FRAME_HEIGHT 240
-#define VREG_VSEL VREG_VOLTAGE_1_20
-#define DVI_TIMING dvi_timing_640x480p_60hz
+#define FRAME_WIDTH 800
+#define FRAME_HEIGHT 150
+#define VREG_VSEL VREG_VOLTAGE_1_30 // needs to be 1v3 for 800x60
+#define DVI_TIMING dvi_timing_800x600p_60hz
 
 #define LED_PIN 25
 
@@ -44,11 +43,35 @@ uint16_t pal[] = {
     TO_RGB565(0x84A563),
     TO_RGB565(0x39613A),
     TO_RGB565(0x081711),
+
+    // "softbreeze"
+    // https://www.deviantart.com/advancedfan2020/art/Game-Boy-Palette-Set-Soft-Breeze-1013214618
+    TO_RGB565(0xFFD895),
+    TO_RGB565(0xFDBF68),
+    TO_RGB565(0xFB8A9C),
+    TO_RGB565(0x776DBD),
+
+    // switch pocket
+    TO_RGB565(0xb5c69c),
+    TO_RGB565(0x8d9c7b),
+    TO_RGB565(0x637251),
+    TO_RGB565(0x303820),
+
+    // famicon
+    TO_RGB565(0xefecda),
+    TO_RGB565(0xd9be72),
+    TO_RGB565(0xa32135),
+    TO_RGB565(0x231916),
 };
 
-uint8_t pal_offset = 1 * 4;
+uint8_t pal_offset = 1;
 
-uint16_t g_framebuf[FRAME_WIDTH * FRAME_HEIGHT];
+#define DMG_WIDTH 160
+#define DMG_HEIGHT 144
+
+uint16_t g_framebuf[DMG_WIDTH * DMG_HEIGHT];
+uint16_t scanline_buffer[FRAME_WIDTH];
+uint16_t bg_color = 0;
 struct dvi_inst dvi0;
 PIO pio = pio1;
 
@@ -60,23 +83,50 @@ void __not_in_flash("core1_main") core1_main() {
 }
 
 void core1_scanline_callback() {
-  // Discard any scanline pointers passed back
-  uint16_t *bufptr;
+  static uint scanline = 2;
+  uint idx = 0;
+  uint border_horz = 40;
+  uint border_vert = 3;
+  static uint frame_idx = 0;
+  static uint dmg_line_idx = 0;
+
+  if (scanline < border_vert || scanline >= FRAME_HEIGHT - border_vert) {
+    for (uint i = 0; i < FRAME_WIDTH; i++) {
+      scanline_buffer[idx++] = bg_color;
+    }
+
+    dmg_line_idx = 0;
+  } else {
+    dmg_line_idx = scanline - border_vert;
+
+    for (uint i = 0; i < border_horz; i++)
+      scanline_buffer[idx++] = bg_color;
+
+    for (uint i = 0; i < DMG_WIDTH; i++) {
+      frame_idx = dmg_line_idx * DMG_WIDTH + i;
+      scanline_buffer[idx++] = pal[(pal_offset * 4) + g_framebuf[frame_idx]];
+      scanline_buffer[idx++] = pal[(pal_offset * 4) + g_framebuf[frame_idx]];
+    }
+
+    for (uint i = 0; i < border_horz; i++)
+      scanline_buffer[idx++] = bg_color;
+  }
+
+  const uint32_t *bufptr = (uint32_t *)scanline_buffer;
+
+  queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
   while (queue_try_remove_u32(&dvi0.q_colour_free, &bufptr))
     ;
-  // // Note first two scanlines are pushed before DVI start
-  static uint scanline = 2;
-  bufptr = &g_framebuf[FRAME_WIDTH * scanline];
-  queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
+
   scanline = (scanline + 1) % FRAME_HEIGHT;
 }
 
 void init_lcd_capture(PIO pio, uint sm, uint offset, uint pin_base) {
-  pio_gpio_init(pio, pin_base + 0); // d0
-  pio_gpio_init(pio, pin_base + 1); // d1
-  pio_gpio_init(pio, pin_base + 2); // vsync
-  pio_gpio_init(pio, pin_base + 3); // hsync
-  pio_gpio_init(pio, pin_base + 4); // clock
+  pio_gpio_init(pio, pin_base + 0); // d0 - green112
+  pio_gpio_init(pio, pin_base + 1); // d1 - yellow
+  pio_gpio_init(pio, pin_base + 2); // vsync - blue
+  pio_gpio_init(pio, pin_base + 3); // hsync - red
+  pio_gpio_init(pio, pin_base + 4); // clock - white
 
   // Adjusted to the new program name
   pio_sm_config c = gb_program_get_default_config(offset);
@@ -112,8 +162,8 @@ int main() {
   dvi_init(&dvi0, next_striped_spin_lock_num(), next_striped_spin_lock_num());
 
   // kick off the render core
-  sprite_fill16(g_framebuf, 0xf099, FRAME_WIDTH * FRAME_HEIGHT);
-  uint16_t *bufptr = g_framebuf;
+  sprite_fill16(scanline_buffer, 0xf099, FRAME_WIDTH);
+  uint16_t *bufptr = scanline_buffer;
   queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
   bufptr += FRAME_WIDTH;
   queue_add_blocking_u32(&dvi0.q_colour_valid, &bufptr);
@@ -123,7 +173,6 @@ int main() {
   uint offset = pio_add_program(pio, &gb_program);
   init_lcd_capture(pio, SM, offset, PIN_BASE);
 
-  // uint heartbeat = 0;
   uint i = 0;
   uint8_t ddvh = 0;
   uint32_t data = 0;
@@ -138,12 +187,12 @@ int main() {
 
   // uint8_t vsync_count = 0;
 
-  // clear the g_framebuf with a gradient
-  for (int y = 0; y < FRAME_HEIGHT; y++) {
-    for (int x = 0; x < FRAME_WIDTH; x++) {
-      g_framebuf[y * FRAME_WIDTH + x] = 0x0;
-    }
-  }
+  // // clear the g_framebuf with a gradient
+  // for (int y = 0; y < DMG_HEIGHT; y++) {
+  //   for (int x = 0; x < DMG_WIDTH; x++) {
+  //     g_framebuf[y * DMG_WIDTH + x] = 0x0;
+  //   }
+  // }
 
   while (true) {
 
@@ -166,18 +215,18 @@ int main() {
         if (hsync == 1) {
           scan_x = 0;
           if (vsync == 0) {
-            scan_y = (scan_y + 1) % 144;
+            scan_y = (scan_y + 1) % DMG_HEIGHT;
           }
         } else {
-          scan_x = (scan_x + 1) % 160;
+          scan_x = (scan_x + 1) % DMG_WIDTH;
         }
 
         // add 80 to x and then add 48 to y
         // when display is 160x144, get the correct buffer_ptr for scan_x and
         // scan_y:
-        buffer_ptr = (scan_y + 48) * FRAME_WIDTH + (scan_x + 80);
+        buffer_ptr = scan_y * DMG_WIDTH + scan_x;
 
-        g_framebuf[buffer_ptr] = pal[pal_offset + ddvh];
+        g_framebuf[buffer_ptr] = ddvh;
       }
     }
   }
