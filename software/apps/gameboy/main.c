@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "bsp/board.h"
+#include "tusb.h"
+
 #include "common_dvi_pin_configs.h"
 #include "dvi.h"
 #include "dvi_serialiser.h"
@@ -30,6 +33,11 @@
 #define TO_RGB565(rgb888)                                                      \
   (((rgb888 >> 19) & 0x1F) << 11) | (((rgb888 >> 10) & 0x3F) << 5) |           \
       ((rgb888 >> 3) & 0x1F)
+
+void led_blinking_task(void);
+
+void cdc_task(void);
+void hid_app_task(void);
 
 uint16_t pal[] = {
     // Switch DMG
@@ -142,7 +150,7 @@ void init_lcd_capture(PIO pio, uint sm, uint offset, uint pin_base) {
   pio_sm_set_enabled(pio, sm, true);
 }
 
-int main() {
+int main(void) {
   vreg_set_voltage(VREG_VSEL);
   sleep_ms(10);
 
@@ -153,8 +161,6 @@ int main() {
 
   gpio_init(LED_PIN);
   gpio_set_dir(LED_PIN, GPIO_OUT);
-
-  // gfx_init();
 
   dvi0.timing = &DVI_TIMING;
   dvi0.ser_cfg = DVI_DEFAULT_SERIAL_CONFIG;
@@ -172,6 +178,13 @@ int main() {
 
   uint offset = pio_add_program(pio, &gb_program);
   init_lcd_capture(pio, SM, offset, PIN_BASE);
+
+  board_init();
+
+  printf("TinyUSB Host HID Controller Example\r\n");
+  printf("Note: Events only displayed for explictly supported controllers\r\n");
+
+  tusb_init();
 
   uint i = 0;
   uint8_t ddvh = 0;
@@ -195,6 +208,17 @@ int main() {
   // }
 
   while (true) {
+
+    tuh_task();
+    led_blinking_task();
+
+#if CFG_TUH_CDC
+    cdc_task();
+#endif
+
+#if CFG_TUH_HID
+    hid_app_task();
+#endif
 
     if (!pio_sm_is_rx_fifo_empty(pio, SM)) {
       data = pio_sm_get(pio, SM);
@@ -231,4 +255,60 @@ int main() {
     }
   }
   __builtin_unreachable();
+}
+
+void tuh_mount_cb(uint8_t dev_addr) {
+  // application set-up
+  printf("A device with address %d is mounted\r\n", dev_addr);
+}
+
+void tuh_umount_cb(uint8_t dev_addr) {
+  // application tear-down
+  printf("A device with address %d is unmounted \r\n", dev_addr);
+}
+
+void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
+                                uint8_t const *report, uint16_t len) {
+
+  // continue to request to receive report
+  if (!tuh_hid_receive_report(dev_addr, instance)) {
+    printf("Error: cannot request to receive report\r\n");
+  }
+}
+
+void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
+                      uint8_t const *desc_report, uint16_t desc_len) {
+  uint16_t vid, pid;
+  tuh_vid_pid_get(dev_addr, &vid, &pid);
+
+  printf("HID device address = %d, instance = %d is mounted\r\n", dev_addr,
+         instance);
+  printf("VID = %04x, PID = %04x\r\n", vid, pid);
+}
+
+// Invoked when device with hid interface is un-mounted
+void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
+  printf("HID device address = %d, instance = %d is unmounted\r\n", dev_addr,
+         instance);
+}
+
+void hid_app_task(void) {
+  // nothing to do
+}
+
+void cdc_task(void) {}
+
+void led_blinking_task(void) {
+  const uint32_t interval_ms = 1000;
+  static uint32_t start_ms = 0;
+
+  static bool led_state = false;
+
+  // Blink every interval ms
+  if (board_millis() - start_ms < interval_ms)
+    return; // not enough time
+  start_ms += interval_ms;
+
+  board_led_write(led_state);
+  led_state = 1 - led_state; // toggle
 }
