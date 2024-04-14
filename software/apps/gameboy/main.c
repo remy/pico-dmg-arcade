@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "bsp/board.h"
+#include "bsp/board_api.h"
 #include "tusb.h"
 
 #include "common_dvi_pin_configs.h"
@@ -36,8 +36,8 @@
 
 void led_blinking_task(void);
 
-void cdc_task(void);
-void hid_app_task(void);
+extern void cdc_task(void);
+extern void hid_app_task(void);
 
 uint16_t pal[] = {
     // Switch DMG
@@ -184,7 +184,7 @@ int main(void) {
   printf("TinyUSB Host HID Controller Example\r\n");
   printf("Note: Events only displayed for explictly supported controllers\r\n");
 
-  tusb_init();
+  tuh_init(BOARD_TUH_RHPORT);
 
   uint i = 0;
   uint8_t ddvh = 0;
@@ -210,15 +210,6 @@ int main(void) {
   while (true) {
 
     tuh_task();
-    led_blinking_task();
-
-#if CFG_TUH_CDC
-    cdc_task();
-#endif
-
-#if CFG_TUH_HID
-    hid_app_task();
-#endif
 
     if (!pio_sm_is_rx_fifo_empty(pio, SM)) {
       data = pio_sm_get(pio, SM);
@@ -256,47 +247,6 @@ int main(void) {
   }
   __builtin_unreachable();
 }
-
-void tuh_mount_cb(uint8_t dev_addr) {
-  // application set-up
-  printf("A device with address %d is mounted\r\n", dev_addr);
-}
-
-void tuh_umount_cb(uint8_t dev_addr) {
-  // application tear-down
-  printf("A device with address %d is unmounted \r\n", dev_addr);
-}
-
-void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
-                                uint8_t const *report, uint16_t len) {
-
-  // continue to request to receive report
-  if (!tuh_hid_receive_report(dev_addr, instance)) {
-    printf("Error: cannot request to receive report\r\n");
-  }
-}
-
-void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
-                      uint8_t const *desc_report, uint16_t desc_len) {
-  uint16_t vid, pid;
-  tuh_vid_pid_get(dev_addr, &vid, &pid);
-
-  printf("HID device address = %d, instance = %d is mounted\r\n", dev_addr,
-         instance);
-  printf("VID = %04x, PID = %04x\r\n", vid, pid);
-}
-
-// Invoked when device with hid interface is un-mounted
-void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-  printf("HID device address = %d, instance = %d is unmounted\r\n", dev_addr,
-         instance);
-}
-
-void hid_app_task(void) {
-  // nothing to do
-}
-
-void cdc_task(void) {}
 
 void led_blinking_task(void) {
   const uint32_t interval_ms = 1000;

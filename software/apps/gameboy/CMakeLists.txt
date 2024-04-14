@@ -9,8 +9,9 @@ add_executable(${PROJECT}
 )
 
 target_sources(${PROJECT} PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/main.c
-        )
+  ${CMAKE_CURRENT_SOURCE_DIR}/usb_gamepad.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+)
 
 family_initialize_project(${PROJECT} ${CMAKE_CURRENT_LIST_DIR})
 
@@ -40,4 +41,3 @@ target_link_libraries(${PROJECT}
 )
 
 pico_add_extra_outputs(${PROJECT})
-
