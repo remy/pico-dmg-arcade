@@ -3,31 +3,12 @@
 
 #include "bsp/board_api.h"
 #include "tusb.h"
+#include "./usb_gamepad.h"
 
 void toggle_led(void);
 
-typedef struct {
-  uint8_t reportId;
-  uint8_t id;
-  uint8_t : 8; // unknown
-
-  uint8_t BTN_Y : 1;
-  uint8_t BTN_X : 1;
-  uint8_t BTN_B : 1;
-  uint8_t BTN_A : 1;
-
-  uint8_t : 4; // skip next 4 bits / nibble (turbo and 8bitdo button)
-
-  uint8_t BTN_Select : 1;
-  uint8_t BTN_Start : 1;
-
-  uint8_t : 8;
-  uint8_t : 8;
-  uint8_t : 4;
-  uint8_t X : 4;
-  uint8_t Y : 4;
-
-} my_gamepad_report_t;
+// in usb_gamepad.h
+gamepad_report_t controller_state;
 
 // check if different than 2
 bool diff_than_2(uint8_t x, uint8_t y) { return (x - y > 2) || (y - x > 2); }
@@ -52,8 +33,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
   const uint32_t interval_ms = 16;
 
   // Blink every interval ms
-  if (board_millis() - poll_ms < interval_ms)
-    return; // not enough time
+  // if (board_millis() - poll_ms < interval_ms)
+  //   return; // not enough time
   poll_ms += interval_ms;
 
 
@@ -66,7 +47,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
   // Checking if there are changes in report since the method was last called
   bool match = true;
-  for (uint8_t i = 2; i < len; i++) {
+  for (uint8_t i = 2; i < 4; i++) {
     if (prev_report[i] != report[i]) {
       // printf("change on %d (%02X <> %02X)\r\n", i, prev_report[i],
       //  report[i]);
@@ -77,11 +58,10 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
   if (match) {
     // printf("no change in HID report\r\n");
+    controller_state.stale = 1;
     return;
   }
 
-  // const char *dpad_str[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW",
-  // "none"};
 
   // print a hexdump of the desc_report to uart
   // printf("HID Report Descriptor on callback (%d):\r\n", len);
@@ -95,16 +75,11 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
   toggle_led();
 
-  my_gamepad_report_t gamepad_report;
-  memcpy(&gamepad_report, report, sizeof(gamepad_report));
+  memcpy(&controller_state, report, sizeof(gamepad_report_t));
 
-  // printf("A: %u, B: %u ", gamepad_report.BTN_A, gamepad_report.BTN_B);
-  // printf("X: %u, Y: %u ", gamepad_report.BTN_X, gamepad_report.BTN_Y);
-  // printf("Select: %u, Start: %u ", gamepad_report.BTN_Select,
-  //        gamepad_report.BTN_Start);
-  // printf("X: %u, Y: %u ", gamepad_report.X, gamepad_report.Y);
-  // printf("\r\n");
-  // }
+  // const char *dpad_str[] = {"none", "N", "S", "NS?", "W", "NW", "SW", "?", "E", "NE", "SE", "??", "WE", "NWE", "SWE", "NWSE"};
+
+  // printf("STA: %d, SEL: %d, A: %d, B: %d, dpad: %d, %s\n", state.STA, state.SEL, state.A, state.B, state.dpad, dpad_str[state.dpad]);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,

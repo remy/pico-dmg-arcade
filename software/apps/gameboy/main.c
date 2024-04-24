@@ -1,17 +1,22 @@
 #include "./gb.pio.h"
+#include "./gamepad.pio.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 #include "hardware/sync.h"
 #include "hardware/vreg.h"
+#include "hardware/pll.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 // #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+
 #include "bsp/board_api.h"
 #include "tusb.h"
+
+#include "./usb_gamepad.h"
 
 #include "common_dvi_pin_configs.h"
 #include "dvi.h"
@@ -30,6 +35,25 @@
 #define PIN_COUNT 4
 #define SM 0 // State machine index
 
+
+#define DMG_OUTPUT_RIGHT_A_PIN      20       // P10
+#define DMG_OUTPUT_LEFT_B_PIN       21       // P11
+#define DMG_OUTPUT_UP_SELECT_PIN    22       // P12
+#define DMG_OUTPUT_DOWN_START_PIN   26       // P13
+#define DMG_READING_DPAD_PIN        27       // P14
+#define DMG_READING_BUTTONS_PIN     28       // P15
+
+
+#define BIT_RIGHT_A                 (1<<0)  // P10
+#define BIT_LEFT_B                  (1<<1)  // P11
+#define BIT_UP_SELECT               (1<<2)  // P12
+#define BIT_DOWN_START              (1<<3)  // P13
+
+#define IN_PIN_COUNT    2   // P14 & P15
+#define OUT_PIN_COUNT   4   // P10 to P13 (not in that order currently)
+
+
+
 #define TO_RGB565(rgb888)                                                      \
   (((rgb888 >> 19) & 0x1F) << 11) | (((rgb888 >> 10) & 0x3F) << 5) |           \
       ((rgb888 >> 3) & 0x1F)
@@ -38,6 +62,8 @@ void led_blinking_task(void);
 
 extern void cdc_task(void);
 extern void hid_app_task(void);
+
+extern gamepad_report_t controller_state;
 
 uint16_t pal[] = {
     // Switch DMG
@@ -48,8 +74,8 @@ uint16_t pal[] = {
 
     // SameBoy DMG
     TO_RGB565(0xC6DE8C),
-    TO_RGB565(0x84A563),
     TO_RGB565(0x39613A),
+    TO_RGB565(0x84A563),
     TO_RGB565(0x081711),
 
     // "softbreeze"
@@ -81,7 +107,12 @@ uint16_t g_framebuf[DMG_WIDTH * DMG_HEIGHT];
 uint16_t scanline_buffer[FRAME_WIDTH];
 uint16_t bg_color = 0;
 struct dvi_inst dvi0;
-PIO pio = pio1;
+static PIO pio = pio1;
+
+static uint gamepad_state_machine = 0;
+static uint lcd_state_machine = 0;
+
+static uint pio_out_value = 0;
 
 void __not_in_flash("core1_main") core1_main() {
   dvi_register_irqs_this_core(&dvi0, DMA_IRQ_0);
@@ -129,8 +160,26 @@ void core1_scanline_callback() {
   scanline = (scanline + 1) % FRAME_HEIGHT;
 }
 
-void init_lcd_capture(PIO pio, uint sm, uint offset, uint pin_base) {
-  pio_gpio_init(pio, pin_base + 0); // d0 - green112
+void init_overclock() {
+  // Configure the PLL for a VCO of 540 MHz and a system clock of 270 MHz
+  pll_init(pll_sys, 1, 1600, 6, 2);
+
+  clock_configure(clk_sys,
+                  0,              // No glitchless mux
+                  CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLKSRC_CLK_SYS_AUX,
+                  200 * MHZ,      // Target frequency 200MHz
+                  200 * MHZ);     // Match the target frequency
+}
+
+
+void init_lcd_capture() {
+  static uint pin_base = PIN_BASE;
+  uint offset = pio_add_program(pio, &gb_program);
+  lcd_state_machine = pio_claim_unused_sm(pio, true);
+
+  uint sm = lcd_state_machine;
+
+  pio_gpio_init(pio, pin_base + 0); // d0 - green
   pio_gpio_init(pio, pin_base + 1); // d1 - yellow
   pio_gpio_init(pio, pin_base + 2); // vsync - blue
   pio_gpio_init(pio, pin_base + 3); // hsync - red
@@ -150,6 +199,102 @@ void init_lcd_capture(PIO pio, uint sm, uint offset, uint pin_base) {
   pio_sm_set_enabled(pio, sm, true);
 }
 
+static void start_gamepad_program(void)
+{
+    uint in_pin_start = DMG_READING_DPAD_PIN;
+    uint out_pin_start = DMG_OUTPUT_RIGHT_A_PIN;
+
+    // Get first free state machine in PIO 0
+    gamepad_state_machine = pio_claim_unused_sm(pio, true);
+    uint sm = gamepad_state_machine;
+
+    // Add PIO program to PIO instruction memory. SDK will find location and
+    // return with the memory offset of the program.
+    uint offset = pio_add_program(pio, &gamepad_program);
+
+
+   // Sets up state machine and wrap target. This function is automatically
+    // generated in dmg.pio.h.
+    pio_sm_config config = gb_program_get_default_config(offset);
+
+    // Allow PIO to control GPIO pin (as output)
+    for (int i = 0; i < OUT_PIN_COUNT; i++)
+    {
+        pio_gpio_init(pio, out_pin_start+i);
+    }
+
+    for (int i = 0; i < IN_PIN_COUNT; i++)
+    {
+        pio_gpio_init(pio, in_pin_start+i);
+    }
+
+    // Set and initialize the input pins
+    sm_config_set_in_pins(&config, in_pin_start);
+    pio_sm_set_consecutive_pindirs(pio, sm, in_pin_start, IN_PIN_COUNT, false);
+
+    // Connect pin to SET pin (control with 'set' instruction)
+    sm_config_set_set_pins(&config, out_pin_start, 4);
+
+    // Set and initialize the output pins
+    sm_config_set_out_pins(&config, out_pin_start, OUT_PIN_COUNT);
+    pio_sm_set_consecutive_pindirs(pio, sm, out_pin_start, OUT_PIN_COUNT, true);
+
+    // Calculate the PIO clock divider
+    // float div = (float)clock_get_hz(clk_sys) / pio_freq;
+    // float div = (float)2;
+    float div = (float)1;
+    sm_config_set_clkdiv(&config, div);
+
+    sm_config_set_in_shift(&config, true, true, 32);
+    // sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_TX);
+
+    // Load configuration and jump to start of the program
+    pio_sm_init(pio, sm, offset, &config);
+
+    // Initialize the program using the helper function in our .pio file
+    // gamepad_program_init(pio, gamepad_state_machine, offset, start_in_pin, start_out_pin, div);
+
+    // Start running our PIO program in the state machine
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+
+static bool __no_inline_not_in_flash_func(update_controller)(void) {
+  if (!controller_state.stale) {
+    return false;
+  }
+  uint8_t pins_dpad = 0;
+  uint8_t pins_other = 0;
+  if (controller_state.A)
+      pins_other |= BIT_RIGHT_A;
+
+  if (controller_state.B)
+      pins_other |= BIT_LEFT_B;
+
+  if (controller_state.SEL)
+      pins_other |= BIT_UP_SELECT;
+
+  if (controller_state.STA)
+      pins_other |= BIT_DOWN_START;
+
+  if (controller_state.dpad & 1)
+      pins_dpad |= BIT_UP_SELECT;
+
+  if (controller_state.dpad & 2)
+      pins_dpad |= BIT_DOWN_START;
+
+  if (controller_state.dpad & 4)
+      pins_dpad |= BIT_LEFT_B;
+
+  if (controller_state.dpad & 8)
+      pins_dpad |= BIT_RIGHT_A;
+
+  uint8_t pio_report = ~((pins_other << 4) | (pins_dpad&0xF));
+  pio_out_value = (uint32_t)pio_report;
+  return true;
+}
+
+
 int main(void) {
   vreg_set_voltage(VREG_VSEL);
   sleep_ms(10);
@@ -158,6 +303,8 @@ int main(void) {
 
   stdio_init_all();
   setup_default_uart();
+
+  // init_overclock();
 
   gpio_init(LED_PIN);
   gpio_set_dir(LED_PIN, GPIO_OUT);
@@ -176,13 +323,16 @@ int main(void) {
 
   multicore_launch_core1(core1_main);
 
-  uint offset = pio_add_program(pio, &gb_program);
-  init_lcd_capture(pio, SM, offset, PIN_BASE);
+  init_lcd_capture();
+
+  start_gamepad_program();
+
+  sleep_ms(200);
 
   board_init();
 
-  printf("TinyUSB Host HID Controller Example\r\n");
-  printf("Note: Events only displayed for explictly supported controllers\r\n");
+  // printf("TinyUSB Host HID Controller Example\r\n");
+  // printf("Note: Events only displayed for explictly supported controllers\r\n");
 
   tuh_init(BOARD_TUH_RHPORT);
 
@@ -210,6 +360,8 @@ int main(void) {
   while (true) {
 
     tuh_task();
+    update_controller();
+    pio_sm_put(pio, gamepad_state_machine, pio_out_value);
 
     if (!pio_sm_is_rx_fifo_empty(pio, SM)) {
       data = pio_sm_get(pio, SM);
@@ -246,19 +398,4 @@ int main(void) {
     }
   }
   __builtin_unreachable();
-}
-
-void led_blinking_task(void) {
-  const uint32_t interval_ms = 1000;
-  static uint32_t start_ms = 0;
-
-  static bool led_state = false;
-
-  // Blink every interval ms
-  if (board_millis() - start_ms < interval_ms)
-    return; // not enough time
-  start_ms += interval_ms;
-
-  board_led_write(led_state);
-  led_state = 1 - led_state; // toggle
 }

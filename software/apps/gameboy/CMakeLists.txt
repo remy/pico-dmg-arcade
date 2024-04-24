@@ -18,7 +18,14 @@ family_initialize_project(${PROJECT} ${CMAKE_CURRENT_LIST_DIR})
 # pico_enable_stdio_usb(gameboy 1)
 pico_enable_stdio_uart(gameboy 1)
 
-pico_generate_pio_header(${PROJECT} ${CMAKE_CURRENT_LIST_DIR}/gb.pio)
+pico_generate_pio_header(
+  ${PROJECT}
+  ${CMAKE_CURRENT_LIST_DIR}/gb.pio
+  )
+pico_generate_pio_header(
+  ${PROJECT}
+  ${CMAKE_CURRENT_LIST_DIR}/gamepad.pio
+)
 
 # target_compile_options(${PROJECT} PRIVATE -Wall)
 

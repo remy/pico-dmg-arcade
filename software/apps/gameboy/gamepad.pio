@@ -1,0 +1,21 @@
+; Based on the ideas from Joe Ostrander / 2023, but modified to simplify the code
+; https://github.com/joeostrander/PicoDVI-DMG/blob/main/software/apps/dmg/dmg.pio
+
+.program gamepad
+
+forever:
+  ; pio_report is 8bit, 4 bits for SEL/STA/A/B and 4 bits for D-PAD
+
+  pull block        ; wait for data to be ready
+
+
+  ; if DMG_READING_DPAD_PIN is low, then read the read the first 4 bits onto OUT
+  wait 0 pin 0
+  out pins, 4
+
+  ; then OTHER_READING_PAD will be low (always) and so write out the next 4 bits
+  wait 0 pin 1
+  out pins, 4
+  wait 1 pin 1
+
+jmp forever
