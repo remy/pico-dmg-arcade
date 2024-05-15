@@ -87,20 +87,22 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
   uint16_t vid, pid;
   tuh_vid_pid_get(dev_addr, &vid, &pid);
 
-  printf("tuh_hid_mount_cb / HID device address = %d, instance = %d is "
-         "mounted\r\n",
-         dev_addr, instance);
-  printf("VID = %04x, PID = %04x\r\n", vid, pid);
+  if (false) {
+    printf("tuh_hid_mount_cb / HID device address = %d, instance = %d is "
+          "mounted\r\n",
+          dev_addr, instance);
+    printf("VID = %04x, PID = %04x\r\n", vid, pid);
 
-  // print a hexdump of the desc_report to uart
-  printf("HID Mount Report Descriptor (%d):\r\n", desc_len);
-  for (uint32_t i = 0; i < desc_len; i++) {
-    printf("%02X ", desc_report[i]);
-    if ((i + 1) % 16 == 0) {
-      printf("\r\n");
+    // print a hexdump of the desc_report to uart
+    printf("HID Mount Report Descriptor (%d):\r\n", desc_len);
+    for (uint32_t i = 0; i < desc_len; i++) {
+      printf("%02X ", desc_report[i]);
+      if ((i + 1) % 16 == 0) {
+        printf("\r\n");
+      }
     }
+    printf("\r\n");
   }
-  printf("\r\n");
 
   // continue to request to receive report
   if (!tuh_hid_receive_report(dev_addr, instance)) {

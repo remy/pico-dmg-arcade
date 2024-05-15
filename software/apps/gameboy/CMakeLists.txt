@@ -21,7 +21,8 @@ pico_enable_stdio_uart(gameboy 1)
 pico_generate_pio_header(
   ${PROJECT}
   ${CMAKE_CURRENT_LIST_DIR}/gb.pio
-  )
+)
+
 pico_generate_pio_header(
   ${PROJECT}
   ${CMAKE_CURRENT_LIST_DIR}/gamepad.pio
@@ -30,8 +31,8 @@ pico_generate_pio_header(
 # target_compile_options(${PROJECT} PRIVATE -Wall)
 
 target_include_directories(${PROJECT} PUBLIC
-        ${CMAKE_CURRENT_LIST_DIR}
-        )
+  ${CMAKE_CURRENT_LIST_DIR}
+)
 
 target_compile_definitions(${PROJECT} PRIVATE
 	DVI_DEFAULT_SERIAL_CONFIG=${DVI_DEFAULT_SERIAL_CONFIG}
@@ -45,6 +46,7 @@ target_link_libraries(${PROJECT}
   libsprite
   tinyusb_host
   tinyusb_board
+  hardware_adc
 )
 
 pico_add_extra_outputs(${PROJECT})

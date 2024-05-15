@@ -8,9 +8,15 @@
 #include "hardware/pll.h"
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
-// #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+// #define DEBUG 0
+
+#ifdef DEBUG
+#include "pico/stdlib.h"
+#include "hardware/adc.h"
+#endif
 
 
 #include "bsp/board_api.h"
@@ -31,17 +37,26 @@
 
 #define LED_PIN 25
 
-#define PIN_BASE 6
+// LCD pins
+#define PIN_BASE 2
 #define PIN_COUNT 4
+
+// Order of vsync, hsync and clock are important
+// D0    15
+// D1    16
+// VSYNC 12 (60Hz)
+// HSYNC 17 (9.2kHz)
+// CLOCK 14 (4Mhz)
+
 #define SM 0 // State machine index
 
 
-#define DMG_OUTPUT_RIGHT_A_PIN      20       // P10
-#define DMG_OUTPUT_LEFT_B_PIN       21       // P11
-#define DMG_OUTPUT_UP_SELECT_PIN    22       // P12
-#define DMG_OUTPUT_DOWN_START_PIN   26       // P13
-#define DMG_READING_DPAD_PIN        27       // P14
-#define DMG_READING_BUTTONS_PIN     28       // P15
+#define DMG_OUTPUT_RIGHT_A_PIN      7        // P10
+#define DMG_OUTPUT_LEFT_B_PIN       8        // P11
+#define DMG_OUTPUT_UP_SELECT_PIN    9        // P12
+#define DMG_OUTPUT_DOWN_START_PIN   10        // P13
+#define DMG_READING_DPAD_PIN        20       // P14
+#define DMG_READING_BUTTONS_PIN     21       // P15
 
 
 #define BIT_RIGHT_A                 (1<<0)  // P10
@@ -50,18 +65,17 @@
 #define BIT_DOWN_START              (1<<3)  // P13
 
 #define IN_PIN_COUNT    2   // P14 & P15
-#define OUT_PIN_COUNT   4   // P10 to P13 (not in that order currently)
-
+#define OUT_PIN_COUNT   4   // P10 to P13
 
 
 #define TO_RGB565(rgb888)                                                      \
   (((rgb888 >> 19) & 0x1F) << 11) | (((rgb888 >> 10) & 0x3F) << 5) |           \
       ((rgb888 >> 3) & 0x1F)
 
-void led_blinking_task(void);
+// void led_blinking_task(void);
 
-extern void cdc_task(void);
-extern void hid_app_task(void);
+// extern void cdc_task(void);
+// extern void hid_app_task(void);
 
 extern gamepad_report_t controller_state;
 
@@ -218,15 +232,13 @@ static void start_gamepad_program(void)
     pio_sm_config config = gb_program_get_default_config(offset);
 
     // Allow PIO to control GPIO pin (as output)
-    for (int i = 0; i < OUT_PIN_COUNT; i++)
-    {
-        pio_gpio_init(pio, out_pin_start+i);
-    }
+    pio_gpio_init(pio, DMG_OUTPUT_RIGHT_A_PIN);
+    pio_gpio_init(pio, DMG_OUTPUT_LEFT_B_PIN);
+    pio_gpio_init(pio, DMG_OUTPUT_UP_SELECT_PIN);
+    pio_gpio_init(pio, DMG_OUTPUT_DOWN_START_PIN);
 
-    for (int i = 0; i < IN_PIN_COUNT; i++)
-    {
-        pio_gpio_init(pio, in_pin_start+i);
-    }
+    // pio_gpio_init(pio, DMG_READING_DPAD_PIN);
+    // pio_gpio_init(pio, DMG_READING_BUTTONS_PIN);
 
     // Set and initialize the input pins
     sm_config_set_in_pins(&config, in_pin_start);
@@ -290,12 +302,21 @@ static bool __no_inline_not_in_flash_func(update_controller)(void) {
       pins_dpad |= BIT_RIGHT_A;
 
   uint8_t pio_report = ~((pins_other << 4) | (pins_dpad&0xF));
+
+  // printf("pio_report: %x, pins_dpad: %x, pins_other: %x\n", pio_report, pins_dpad, pins_other);
   pio_out_value = (uint32_t)pio_report;
   return true;
 }
 
 
 int main(void) {
+
+  #ifdef DEBUG
+  adc_init();
+  adc_set_temp_sensor_enabled(true);
+  adc_select_input(4);
+  #endif
+
   vreg_set_voltage(VREG_VSEL);
   sleep_ms(10);
 
@@ -357,7 +378,24 @@ int main(void) {
   //   }
   // }
 
+#ifdef DEBUG
+  uint heartbeat = 0;
+#endif
+
   while (true) {
+
+    #ifdef DEBUG
+    if (++heartbeat >= 65530) {
+			heartbeat = 0;
+      uint16_t result = adc_read();
+      const float conversion_factor = 3.3f / (1 << 12);
+      float voltage = result * conversion_factor;
+      float temperature = 27 - (voltage - 0.706) / 0.001721;
+      printf("CPU temp: %.2f C\n", temperature);
+      printf("pio_report: %x\n", pio_out_value);
+		}
+    #endif
+
 
     tuh_task();
     update_controller();
@@ -368,7 +406,7 @@ int main(void) {
 
       for (i = 0; i < 8; i++) {
 
-        // 4bits: d0, d1, hsync, vsync
+        // 4bits: d0, d1, vsync, hsync
         ddvh = (data >> (i * 4)) & 0b1111;
 
         vsync = (ddvh >> 2) & 0b1;
@@ -377,6 +415,7 @@ int main(void) {
 
         if (vsync == 1) {
           scan_y = 0;
+          printf("vsync\n");
         }
 
         if (hsync == 1) {
@@ -395,6 +434,8 @@ int main(void) {
 
         g_framebuf[buffer_ptr] = ddvh;
       }
+    } else {
+      // sleep_ms(10);
     }
   }
   __builtin_unreachable();
