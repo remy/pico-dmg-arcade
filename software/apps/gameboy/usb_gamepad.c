@@ -47,7 +47,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
   // Checking if there are changes in report since the method was last called
   bool match = true;
-  for (uint8_t i = 2; i < 4; i++) {
+  for (uint8_t i = 0; i < len; i++) {
+    // if (i == 2 || i == 3 || i == 4) continue; // ignore Z, Z and Rz
     if (prev_report[i] != report[i]) {
       // printf("change on %d (%02X <> %02X)\r\n", i, prev_report[i],
       //  report[i]);
@@ -63,23 +64,71 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
   }
 
 
-  // print a hexdump of the desc_report to uart
-  // printf("HID Report Descriptor on callback (%d):\r\n", len);
-  // for (uint32_t i = 0; i < len; i++) {
-  //   printf("%02X ", report[i]);
-  //   if ((i + 1) % 16 == 0) {
-  //     printf("\r\n");
-  //   }
-  // }
-  // printf("\r\n");
+  // // print a hexdump of the desc_report to uart
+  printf("HID Report Descriptor on callback (%d):\r\n", len);
+  for (uint32_t i = 0; i < len; i++) {
+    printf("%02X ", report[i]);
+    if ((i + 1) % 16 == 0) {
+      printf("\r\n");
+    }
+  }
+  printf("\r\n");
 
   toggle_led();
 
   memcpy(&controller_state, report, sizeof(gamepad_report_t));
 
+  uint8_t dpad = controller_state.dpad;
+  uint8_t new_dpad = 0;
+
+  if (controller_state.X < 0x7f) {
+    new_dpad |= 0x4;
+  }
+  if (controller_state.X > 0x80) {
+    new_dpad |= 0x8;
+  }
+  if (controller_state.Y < 0x7f) {
+    new_dpad |= 0x1;
+  }
+  if (controller_state.Y > 0x80) {
+    new_dpad |= 0x2;
+  }
+
+  if (dpad != 0xf) {
+    if (dpad==0x0) {
+      new_dpad |= 0x1;
+    }
+    if (dpad==0x1) {
+      new_dpad |= 0x1;
+      new_dpad |= 0x8;
+    }
+    if (dpad==0x2) {
+      new_dpad |= 0x8;
+    }
+    if (dpad==0x3) {
+      new_dpad |= 0x2;
+      new_dpad |= 0x8;
+    }
+    if (dpad==0x4) {
+      new_dpad |= 0x2;
+    }
+    if (dpad==0x5) {
+      new_dpad |= 0x2;
+      new_dpad |= 0x4;
+    }
+    if (dpad==0x6) {
+      new_dpad |= 0x4;
+    }
+    if (dpad==0x7) {
+      new_dpad |= 0x1;
+      new_dpad |= 0x4;
+    }
+  }
+  controller_state.dpad = new_dpad;
+
   // const char *dpad_str[] = {"none", "N", "S", "NS?", "W", "NW", "SW", "?", "E", "NE", "SE", "??", "WE", "NWE", "SWE", "NWSE"};
 
-  // printf("STA: %d, SEL: %d, A: %d, B: %d, dpad: %d, %s\n", state.STA, state.SEL, state.A, state.B, state.dpad, dpad_str[state.dpad]);
+  // printf("STA: %d, SEL: %d, A: %d, B: %d, dpad: %d, %s (old: %d)\n", controller_state.STA, controller_state.SEL, controller_state.A, controller_state.B, controller_state.dpad, dpad_str[controller_state.dpad], dpad);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
@@ -87,7 +136,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
   uint16_t vid, pid;
   tuh_vid_pid_get(dev_addr, &vid, &pid);
 
-  if (false) {
+  if (true) {
     printf("tuh_hid_mount_cb / HID device address = %d, instance = %d is "
           "mounted\r\n",
           dev_addr, instance);

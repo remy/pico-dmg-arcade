@@ -415,7 +415,7 @@ int main(void) {
 
         if (vsync == 1) {
           scan_y = 0;
-          printf("vsync\n");
+          // printf("vsync\n");
         }
 
         if (hsync == 1) {
