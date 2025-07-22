@@ -5,3 +5,4 @@
 # Hack as some host examples use $TOP in their path
 # set(TOP /Users/remy/dev/tinyusb_latest)
 add_subdirectory(gameboy)
+add_subdirectory(gameboy_display)

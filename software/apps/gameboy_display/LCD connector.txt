@@ -1,0 +1,23 @@
+LCD connector:
+
+1:  GND
+2:  VLED
+3:  -18V
+4:  P11
+5:  P14
+6:  P13
+7:  P12
+8:  P10
+9:  P15
+10: GND
+11: VCC
+12: VSYNC
+13: AltSig
+14: CLK (53)
+15: DATA0
+16: DATA1
+17: HSYNC
+18: DATALCH
+19: CTL
+20: SPK
+21: GND

@@ -34,8 +34,8 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
   // Blink every interval ms
   // if (board_millis() - poll_ms < interval_ms)
-  //   return; // not enough time
-  poll_ms += interval_ms;
+    // return; // not enough time
+  // poll_ms += interval_ms;
 
 
 
@@ -65,14 +65,14 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
 
 
   // // print a hexdump of the desc_report to uart
-  printf("HID Report Descriptor on callback (%d):\r\n", len);
-  for (uint32_t i = 0; i < len; i++) {
-    printf("%02X ", report[i]);
-    if ((i + 1) % 16 == 0) {
-      printf("\r\n");
-    }
-  }
-  printf("\r\n");
+  // printf("HID Report Descriptor on callback (%d):\r\n", len);
+  // for (uint32_t i = 0; i < len; i++) {
+  //   printf("%02X ", report[i]);
+  //   if ((i + 1) % 16 == 0) {
+  //     printf("\r\n");
+  //   }
+  // }
+  // printf("\r\n");
 
   toggle_led();
 
@@ -136,7 +136,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance,
   uint16_t vid, pid;
   tuh_vid_pid_get(dev_addr, &vid, &pid);
 
-  if (true) {
+  if (false) {
     printf("tuh_hid_mount_cb / HID device address = %d, instance = %d is "
           "mounted\r\n",
           dev_addr, instance);
